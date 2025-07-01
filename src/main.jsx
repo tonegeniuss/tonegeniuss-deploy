@@ -6,11 +6,10 @@ import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js'
 function App() {
   const waveformRef = useRef(null)
   const wavesurferRef = useRef(null)
-  const [audioUrl, setAudioUrl] = useState("")
+  const [input, setInput] = useState("")
   const [region, setRegion] = useState(null)
   const [status, setStatus] = useState("")
   const [format, setFormat] = useState("mp3")
-  const [searchTerm, setSearchTerm] = useState("")
 
   const loadAudio = (url) => {
     if (wavesurferRef.current) {
@@ -50,26 +49,18 @@ function App() {
     }
   }
 
-  const handleLoadUrl = () => {
-    if (!audioUrl) {
-      setStatus("❗ Please paste a valid URL first.")
+  const handleLoad = () => {
+    if (!input.trim()) {
+      setStatus("❗ Enter a song name or link.")
       return
     }
+
+    const isYouTube = input.includes("youtube.com") || input.includes("youtu.be")
     setStatus("🔄 Loading audio...")
-    loadAudio(audioUrl.trim())
-  }
 
-  const handleSearch = () => {
-    if (!searchTerm.trim()) {
-      setStatus("❗ Please enter a song name.")
-      return
-    }
-
-    setStatus(`🔍 Searching "${searchTerm}" (simulated)...`)
-    // Simulate fetching top result and loading sample MP3
+    // For now, simulate result (later: backend fetch real audio from YouTube)
     setTimeout(() => {
       const demoMp3 = "https://file-examples.com/storage/fe798a6f6a101b7cf3f9b06/2017/11/file_example_MP3_700KB.mp3"
-      setAudioUrl(demoMp3)
       loadAudio(demoMp3)
     }, 1500)
   }
@@ -89,25 +80,17 @@ function App() {
   return (
     <div style={{ maxWidth: 600, margin: '40px auto', textAlign: 'center', padding: 20 }}>
       <h1>ToneGeniuss 🎵</h1>
-      <p>Search or paste a link to create a ringtone</p>
+      <p>Paste a link or type a song name</p>
 
       <input
         type="text"
-        placeholder="Search song (e.g. Eminem - Lose Yourself)"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
+        placeholder="E.g. Rick Astley Never Gonna Give You Up or YouTube link"
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
         style={{ width: '100%', padding: 10, marginBottom: 10 }}
       />
-      <button onClick={handleSearch} style={{ padding: 8, marginBottom: 20 }}>🔍 Search & Load</button>
 
-      <input
-        type="text"
-        placeholder="...or paste YouTube/audio URL"
-        value={audioUrl}
-        onChange={(e) => setAudioUrl(e.target.value)}
-        style={{ width: '100%', padding: 10, marginBottom: 10 }}
-      />
-      <button onClick={handleLoadUrl} style={{ padding: 8, marginBottom: 20 }}>🔗 Load URL</button>
+      <button onClick={handleLoad} style={{ padding: 8, marginBottom: 20 }}>🎼 Load</button>
 
       <div ref={waveformRef} style={{ marginBottom: 20 }} />
 
