@@ -1,53 +1,76 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client'
+import WaveSurfer from 'wavesurfer.js'
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js'
 
 function App() {
-  const [url, setUrl] = useState("")
-  const [format, setFormat] = useState("mp3")
-  const [start, setStart] = useState("")
-  const [end, setEnd] = useState("")
+  const waveformRef = useRef(null)
+  const wavesurferRef = useRef(null)
+  const [region, setRegion] = useState(null)
   const [status, setStatus] = useState("")
 
+  useEffect(() => {
+    if (waveformRef.current) {
+      const wavesurfer = WaveSurfer.create({
+        container: waveformRef.current,
+        waveColor: '#ccc',
+        progressColor: '#007bff',
+        height: 100,
+        responsive: true,
+        url: 'https://www.kozco.com/tech/piano2-CoolEdit.mp3', // TEMP: sample audio
+        plugins: [
+          RegionsPlugin.create({
+            dragSelection: {
+              slop: 5
+            }
+          })
+        ]
+      })
+
+      wavesurfer.on('ready', () => {
+        wavesurfer.enableDragSelection({
+          color: 'rgba(0, 123, 255, 0.1)'
+        })
+      })
+
+      wavesurfer.on('region-updated', (newRegion) => {
+        setRegion({
+          start: newRegion.start.toFixed(2),
+          end: newRegion.end.toFixed(2)
+        })
+      })
+
+      wavesurferRef.current = wavesurfer
+    }
+
+    return () => wavesurferRef.current?.destroy()
+  }, [])
+
   const handleDownload = () => {
-    setStatus("Downloading ringtone...")
-    // Placeholder – backend logic to be integrated next
+    if (!region) {
+      setStatus("⚠️ Please select a region first.")
+      return
+    }
+
+    setStatus(`🔄 Preparing ringtone from ${region.start}s to ${region.end}s...`)
     setTimeout(() => {
-      setStatus("✅ Your ringtone is ready (download simulation)")
+      setStatus("✅ Your ringtone is ready! (Simulated)")
     }, 2000)
   }
 
   return (
-    <div style={{ textAlign: 'center', maxWidth: 600, margin: '50px auto', padding: 20 }}>
+    <div style={{ maxWidth: 600, margin: '50px auto', textAlign: 'center', padding: 20 }}>
       <h1>ToneGeniuss 🎵</h1>
-      <p>Make your own ringtone from any YouTube video</p>
-
-      <input
-        type="text"
-        placeholder="Paste YouTube link here"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        style={{ width: "100%", padding: 10, margin: "10px 0" }}
-      />
-
-      <div style={{ display: "flex", gap: "10px", justifyContent: "space-between" }}>
-        <input type="text" placeholder="Start (sec)" value={start} onChange={(e) => setStart(e.target.value)} />
-        <input type="text" placeholder="End (sec)" value={end} onChange={(e) => setEnd(e.target.value)} />
-      </div>
-
-      <div style={{ margin: "10px 0" }}>
-        <label>
-          Format:
-          <select value={format} onChange={(e) => setFormat(e.target.value)} style={{ marginLeft: 10 }}>
-            <option value="mp3">Android (.mp3)</option>
-            <option value="m4r">iPhone (.m4r)</option>
-          </select>
-        </label>
-      </div>
-
+      <p>Select part of the audio to create a ringtone</p>
+      <div ref={waveformRef} style={{ marginBottom: 20 }} />
+      {region && (
+        <p>
+          Selected: <strong>{region.start}s – {region.end}s</strong>
+        </p>
+      )}
       <button onClick={handleDownload} style={{ padding: 10, marginTop: 10 }}>
         🎧 Generate Ringtone
       </button>
-
       {status && <p style={{ marginTop: 20 }}>{status}</p>}
     </div>
   )
