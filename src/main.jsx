@@ -1,137 +1,85 @@
-import React, { useEffect, useRef, useState } from "react";
-import ReactDOM from "react-dom/client";
-import WaveSurfer from "wavesurfer.js";
-import RegionsPlugin from "wavesurfer.js/dist/plugins/regions.js";
+from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+import os
+import uuid
+import subprocess
+import requests
+from urllib.parse import parse_qs, urlparse
 
-const BACKEND = "https://tonegeniuss-backend-1.onrender.com";
+app = FastAPI()
 
-function App() {
-  const waveformRef = useRef(null);
-  const wavesurferRef = useRef(null);
-  const [input, setInput] = useState("");
-  const [status, setStatus] = useState("");
-  const [format, setFormat] = useState("mp3");
-  const [region, setRegion] = useState(null);
-  const [downloadUrl, setDownloadUrl] = useState("");
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-  useEffect(() => {
-    if (!input) return;
+OUTPUT_DIR = "downloads"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    wavesurferRef.current?.destroy();
-    setRegion(null);
-    setDownloadUrl("");
-    setStatus("🔄 Loading audio into waveform...");
+INVIDIOUS_INSTANCES = [
+    "yewtu.be",
+    "yewtu.eu"
+]
 
-    const url =
-      input.includes("youtube")
-        ? `${BACKEND}/extract-audio/?query=${encodeURIComponent(
-            input
-          )}&start=0&end=30&format=mp3`
-        : input;
+def fetch_invidious_json(path: str):
+    for inst in INVIDIOUS_INSTANCES:
+        try:
+            resp = requests.get(f"https://{inst}{path}", timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            continue
+    return None
 
-    const ws = WaveSurfer.create({
-      container: waveformRef.current,
-      waveColor: "#ccc",
-      progressColor: "#007bff",
-      height: 100,
-      responsive: true,
-      url,
-      plugins: [RegionsPlugin.create({ dragSelection: { slop: 5 } })],
-    });
+@app.get("/")
+def root():
+    return {"status": "ToneGeniuss Backend Running"}
 
-    ws.on("ready", () => {
-      ws.enableDragSelection({ color: "rgba(0,123,255,0.1)" });
-      setStatus("✅ Drag to select the part you want below.");
-    });
+@app.get("/extract-audio/")
+def extract_audio(query: str = Query(...),
+                  start: float = Query(0),
+                  end: float = Query(30),
+                  format: str = Query("mp3")):
+    vid = None
+    if "youtu" in query:
+        p = urlparse(query)
+        qs = parse_qs(p.query)
+        vid = qs.get("v", [None])[0]
+    else:
+        search = fetch_invidious_json(f"/api/v1/search?q={query}")
+        if not search:
+            return JSONResponse({"error": "Search API unavailable or returned no results"}, status_code=502)
+        vid = search[0].get("videoId")
+    if not vid:
+        return JSONResponse({"error": "Invalid YouTube link or no results"}, status_code=400)
+    info = fetch_invidious_json(f"/api/v1/videos/{vid}")
+    if not info or "adaptiveFormats" not in info:
+        return JSONResponse({"error": "Video API unavailable or invalid response"}, status_code=502)
+    formats = info["adaptiveFormats"]
+    audio_fmt = next((f for f in formats if f.get("mimeType", "").startswith("audio")), None)
+    if not audio_fmt or "url" not in audio_fmt:
+        return JSONResponse({"error": "No audio format found"}, status_code=500)
+    source_url = audio_fmt["url"]
+    filename_id = str(uuid.uuid4())
+    temp_path  = os.path.join(OUTPUT_DIR, f"{filename_id}_orig.mp3")
+    final_path = os.path.join(OUTPUT_DIR, f"{filename_id}_trim.{format}")
+    subprocess.run(["curl", "-L", source_url, "-o", temp_path], check=True)
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-ss", str(start), "-to", str(end),
+        "-i", temp_path,
+        final_path
+    ], check=True)
+    os.remove(temp_path)
+    return {"file_url": f"/download/{filename_id}_trim.{format}"}
 
-    ws.on("region-updated", (r) =>
-      setRegion({ start: +r.start.toFixed(2), end: +r.end.toFixed(2) })
-    );
-
-    wavesurferRef.current = ws;
-    return () => ws.destroy();
-  }, [input]);
-
-  const handleLoad = () => {
-    if (!input.trim()) {
-      setStatus("❗ Please enter a link or search term.");
-      return;
-    }
-    setInput(input.trim());
-  };
-
-  const handleGenerate = async () => {
-    if (!region) {
-      setStatus("⚠️ Select a region first on the waveform.");
-      return;
-    }
-    setStatus("🔊 Generating trimmed ringtone…");
-
-    try {
-      const resp = await fetch(
-        `${BACKEND}/extract-audio/?query=${encodeURIComponent(
-          input
-        )}&start=${region.start}&end=${region.end}&format=${format}`
-      );
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      const url = BACKEND + data.file_url;
-      setDownloadUrl(url);
-      setStatus("✅ Ringtone ready—click the link below to download.");
-    } catch (e) {
-      setStatus("❌ Error: " + e.message);
-    }
-  };
-
-  return (
-    <div style={{ maxWidth: 600, margin: "40px auto", textAlign: "center" }}>
-      <h1>ToneGeniuss 🎵</h1>
-      <input
-        style={{ width: "100%", padding: 10 }}
-        placeholder="Paste YouTube link or type a song name"
-        value={input}
-        onChange={(e) => setInput(e.target.value)}
-      />
-      <button onClick={handleLoad} style={{ margin: "10px" }}>
-        ▶️ Load into Waveform
-      </button>
-
-      <div ref={waveformRef} style={{ margin: "20px 0" }} />
-
-      {region && (
-        <p>
-          Selected: <strong>{region.start}s – {region.end}s</strong>
-        </p>
-      )}
-
-      <div style={{ margin: "10px" }}>
-        <label>
-          Format:&nbsp;
-          <select
-            value={format}
-            onChange={(e) => setFormat(e.target.value)}
-          >
-            <option value="mp3">Android (.mp3)</option>
-            <option value="m4r">iPhone (.m4r)</option>
-          </select>
-        </label>
-      </div>
-
-      <button onClick={handleGenerate} style={{ padding: "10px 20px" }}>
-        📥 Generate Ringtone
-      </button>
-
-      {downloadUrl && (
-        <p style={{ marginTop: 20 }}>
-          <a href={downloadUrl} download>
-            Download your ringtone
-          </a>
-        </p>
-      )}
-
-      {status && <p style={{ marginTop: 20 }}>{status}</p>}
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+@app.get("/download/{filename}")
+def download_file(filename: str):
+    path = os.path.join(OUTPUT_DIR, filename)
+    if os.path.exists(path):
+        return FileResponse(path, media_type="audio/mpeg", filename=filename)
+    return JSONResponse({"error": "File not found"}, status_code=404)
